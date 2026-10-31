@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bitchat Disaster Mesh - Real-Time Topology & SOS Simulator</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;800&family=Inter:wght@400;600;700&display=swap');
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #0B0E14;
+      color: #E2E8F0;
+    }
+    .mono {
+      font-family: 'JetBrains+Mono', monospace;
+    }
+    canvas {
+      cursor: crosshair;
+    }
+  </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden">
+  <!-- Top Header Bar -->
+  <header class="bg-[#121620] border-b border-[#1E2536] px-6 py-3 flex items-center justify-between shadow-lg">
+    <div class="flex items-center space-x-3">
+      <div class="w-3.5 h-3.5 rounded-full bg-emerald-400 animate-ping"></div>
+      <div>
+        <h1 class="font-extrabold text-sm tracking-wider uppercase mono text-white flex items-center gap-2">
+          Bitchat Emergency Mesh Simulator
+          <span class="text-xs font-normal px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-700/50">BE Project Edition</span>
+        </h1>
+        <p class="text-xs text-slate-400 mono">Offline Multi-Hop Telemetry, Storm Mitigation & Reverse Triage Routing</p>
+      </div>
+    </div>
+
+    <!-- HUD Stats -->
+    <div class="flex items-center space-x-4 mono text-xs">
+      <div class="bg-[#181F2F] px-3 py-1.5 rounded-lg border border-[#27324B] flex items-center gap-2">
+        <span class="text-slate-400">Nodes:</span>
+        <span id="hud-nodes" class="text-emerald-400 font-bold">6</span>
+      </div>
+      <div class="bg-[#181F2F] px-3 py-1.5 rounded-lg border border-[#27324B] flex items-center gap-2">
+        <span class="text-slate-400">Links:</span>
+        <span id="hud-edges" class="text-sky-400 font-bold">7</span>
+      </div>
+      <div class="bg-[#181F2F] px-3 py-1.5 rounded-lg border border-[#27324B] flex items-center gap-2">
+        <span class="text-slate-400">TTL / Hops:</span>
+        <span id="hud-ttl" class="text-amber-400 font-bold">7 / 0</span>
+      </div>
+      <div class="bg-[#181F2F] px-3 py-1.5 rounded-lg border border-[#27324B] flex items-center gap-2">
+        <span class="text-slate-400">Storm Pruned:</span>
+        <span id="hud-pruned" class="text-rose-400 font-bold">0</span>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="flex items-center space-x-2">
+      <button id="btn-transmit-sos" class="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-lg text-xs mono flex items-center gap-1.5 shadow-md transition-all active:scale-95">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+        Transmit SOS Beacon
+      </button>
+      <button id="btn-toggle-fail" class="px-3 py-2 bg-[#212B40] hover:bg-[#2B3854] text-slate-200 rounded-lg text-xs mono border border-[#303E5E] transition-all">
+        Toggle Relay Fail
+      </button>
+      <button id="btn-reset" class="px-3 py-2 bg-[#212B40] hover:bg-[#2B3854] text-slate-200 rounded-lg text-xs mono border border-[#303E5E] transition-all">
+        Reset Layout
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Canvas & Drawer Layout -->
+  <div class="flex-1 flex overflow-hidden">
+    <!-- Center Simulation Canvas -->
+    <div class="flex-1 relative bg-[#090C12] overflow-hidden flex flex-col">
+      <canvas id="sim-canvas" class="w-full h-full block"></canvas>
+
+      <!-- Overlay Floating Controls -->
+      <div class="absolute bottom-4 left-4 bg-[#141926]/90 backdrop-blur-md px-4 py-2.5 rounded-xl border border-[#27324B] shadow-xl text-xs mono flex items-center space-x-4">
+        <div class="flex items-center gap-2">
+          <span class="w-3 h-3 rounded-full bg-rose-500 inline-block"></span>
+          <span>Victim</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-3 h-3 rounded-full bg-amber-400 inline-block"></span>
+          <span>BLE Relay</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-3 h-3 rounded-full bg-emerald-400 inline-block"></span>
+          <span>Rescue HQ</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-3 h-3 rounded-full bg-sky-400 inline-block"></span>
+          <span>Civilian (Suppression)</span>
+        </div>
+        <span class="text-slate-500">|</span>
+        <span class="text-slate-400">💡 Drag nodes to test BLE radio range & ad-hoc rerouting!</span>
+      </div>
+    </div>
+
+    <!-- Right Protocol & Telemetry Event Log -->
+    <div class="w-96 bg-[#0E121B] border-l border-[#1E2536] flex flex-col">
+      <!-- Packet Inspector Panel -->
+      <div class="p-4 border-b border-[#1E2536] bg-[#131722]">
+        <h3 class="text-xs font-bold text-slate-300 uppercase tracking-wider mono mb-2 flex items-center justify-between">
+          <span>Packet Telemetry Inspector</span>
+          <span id="active-packet-badge" class="px-2 py-0.5 text-[10px] rounded bg-slate-800 text-slate-400">IDLE</span>
+        </h3>
+        <div class="bg-[#0A0D14] p-3 rounded-lg border border-[#1E2536] font-mono text-[11px] space-y-1.5">
+          <div class="flex justify-between"><span class="text-slate-500">Protocol Type:</span><span id="pkt-type" class="text-rose-400 font-semibold">EMERGENCY_BEACON (0x30)</span></div>
+          <div class="flex justify-between"><span class="text-slate-500">Origin Peer:</span><span id="pkt-origin" class="text-slate-300">vict_8f93...</span></div>
+          <div class="flex justify-between"><span class="text-slate-500">Distress Level:</span><span id="pkt-severity" class="text-rose-400 font-bold">CRITICAL_MEDICAL</span></div>
+          <div class="flex justify-between"><span class="text-slate-500">Battery Telemetry:</span><span id="pkt-battery" class="text-amber-400">21% (Critical)</span></div>
+          <div class="flex justify-between"><span class="text-slate-500">GPS Coordinates:</span><span id="pkt-gps" class="text-emerald-400">18.5204° N, 73.8567° E</span></div>
+          <div class="flex justify-between"><span class="text-slate-500">Flooding TTL:</span><span id="pkt-ttl" class="text-sky-400">7 Max Hops</span></div>
+        </div>
+      </div>
+
+      <!-- Live Event Log -->
+      <div class="flex-1 flex flex-col p-4 overflow-hidden">
+        <div class="flex justify-between items-center mb-2">
+          <span class="text-xs font-bold text-slate-400 uppercase tracking-wider mono">Live Protocol Event Log</span>
+          <span id="log-count" class="text-[10px] text-slate-500 mono">0 entries</span>
+        </div>
+        <div id="event-log-container" class="flex-1 overflow-y-auto space-y-2 font-mono text-[11px] pr-1">
+          <!-- Log items injected via JS -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // --- Canvas & Simulation State ---
+    const canvas = document.getElementById('sim-canvas');
+    const ctx = canvas.getContext('2d');
+
+    let width = 0;
+    let height = 0;
+    const commRadius = 240; // BLE transmission radius
+
+    function resize() {
+      width = canvas.parentElement.clientWidth;
+      height = canvas.parentElement.clientHeight;
+      canvas.width = width;
+      canvas.height = height;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // Node Definitions
+    let nodes = [
+      { id: 'victim', name: 'Victim (Trapped)', role: 'VICTIM', x: 180, y: 320, battery: 21, failed: false, pulse: 0, ack: false },
+      { id: 'relay1', name: 'Relay Alpha', role: 'RELAY', x: 380, y: 220, battery: 88, failed: false, pulse: 0, ack: false },
+      { id: 'relay2', name: 'Relay Beta', role: 'RELAY', x: 620, y: 240, battery: 74, failed: false, pulse: 0, ack: false },
+      { id: 'relay3', name: 'Relay Gamma', role: 'RELAY', x: 490, y: 440, battery: 92, failed: false, pulse: 0, ack: false },
+      { id: 'bystander', name: 'Civilian Bystander', role: 'BYSTANDER', x: 310, y: 460, battery: 65, failed: false, pulse: 0, ack: false, suppressed: false },
+      { id: 'hq', name: 'Disaster HQ', role: 'HQ', x: 860, y: 330, battery: 99, failed: false, pulse: 0, ack: false }
+    ];
+
+    let packets = []; // active animated in-flight packets
+    let isSimulating = false;
+    let stormPruned = 0;
+    let currentTtl = 7;
+    let currentHops = 0;
+
+    // Dragging
+    let draggedNode = null;
+    canvas.addEventListener('mousedown', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      nodes.forEach(n => {
+        const dist = Math.hypot(n.x - x, n.y - y);
+        if (dist < 30) draggedNode = n;
+      });
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (!draggedNode) return;
+      const rect = canvas.getBoundingClientRect();
+      draggedNode.x = e.clientX - rect.left;
+      draggedNode.y = e.clientY - rect.top;
+      updateEdges();
+    });
+    window.addEventListener('mouseup', () => { draggedNode = null; });
+
+    // Edge Detection
+    let edges = [];
+    function updateEdges() {
+      edges = [];
+      for (let i = 0; i < nodes.length; i++) {
+        const n1 = nodes[i];
+        if (n1.failed) continue;
+        for (let j = i + 1; j < nodes.length; j++) {
+          const n2 = nodes[j];
+          if (n2.failed) continue;
+          const dist = Math.hypot(n1.x - n2.x, n1.y - n2.y);
+          if (dist <= commRadius) {
+            edges.push([n1, n2]);
+          }
+        }
+      }
+      document.getElementById('hud-edges').innerText = edges.length;
+      document.getElementById('hud-nodes').innerText = nodes.filter(n => !n.failed).length;
+    }
+    updateEdges();
+
+    // Event Logging
+    const logContainer = document.getElementById('event-log-container');
+    let logCount = 0;
+    function addLog(msg, color = '#34D399') {
+      logCount++;
+      const time = new Date().toTimeString().split(' ')[0] + '.' + String(Date.now() % 1000).padStart(3, '0').slice(0, 2);
+      const div = document.createElement('div');
+      div.className = 'p-2 rounded bg-[#131722] border border-[#1E2536] flex flex-col gap-0.5 animate-fadeIn';
+      div.innerHTML = `<span class="text-[10px] text-slate-500">[${time}]</span><span style="color: ${color};">${msg}</span>`;
+      logContainer.appendChild(div);
+      logContainer.scrollTop = logContainer.scrollHeight;
+      document.getElementById('log-count').innerText = `${logCount} entries`;
+    }
+
+    addLog('🚀 Disaster Mesh Simulator initialized. 6 nodes online.');
+    addLog('📡 BLE RF radio range set to ~25m (240px circle).');
+
+    // Simulation Trigger
+    async function triggerSos() {
+      if (isSimulating) return;
+      isSimulating = true;
+      document.getElementById('active-packet-badge').innerText = 'TRANSMITTING';
+      document.getElementById('active-packet-badge').className = 'px-2 py-0.5 text-[10px] rounded bg-rose-950 text-rose-300 border border-rose-800 font-bold';
+
+      nodes.forEach(n => { n.ack = false; n.pulse = 0; if (n.role === 'BYSTANDER') n.suppressed = false; });
+      currentHops = 0;
+      currentTtl = 7;
+      updateHud();
+
+      const victim = nodes.find(n => n.id === 'victim');
+      const relay1 = nodes.find(n => n.id === 'relay1');
+      const relay2 = nodes.find(n => n.id === 'relay2');
+      const bystander = nodes.find(n => n.id === 'bystander');
+      const hq = nodes.find(n => n.id === 'hq');
+
+      victim.pulse = 1;
+      addLog('🚨 [ORIGIN] Victim transmits EMERGENCY_BEACON (Type: 0x30, TTL: 7, Severity: CRITICAL)', '#F87171');
+      await sleep(350);
+
+      // Hop 1: Victim -> Relay 1
+      await animateHop('victim', 'relay1', '#F87171');
+      relay1.pulse = 1;
+      currentTtl = 6;
+      currentHops++;
+      updateHud();
+      addLog('⚡ [RELAY 1] Relay Alpha re-broadcasted beacon (TTL: 6 -> 5, Battery: 88%)', '#FBBF24');
+
+      // Hop 2: Simultaneous broadcast to Relay 2 and Civilian
+      animateHop('relay1', 'bystander', '#FCA5A5');
+      await animateHop('relay1', 'relay2', '#F87171');
+
+      // Suppression
+      bystander.suppressed = true;
+      bystander.pulse = 0.5;
+      stormPruned++;
+      updateHud();
+      addLog('🛡️ [STORM MITIGATION] Civilian Node received duplicate packet #SOS-91 -> Dropped from relay queue!', '#38BDF8');
+
+      // Hop 3: Relay 2 -> HQ
+      relay2.pulse = 1;
+      currentTtl = 5;
+      currentHops++;
+      updateHud();
+      addLog('⚡ [RELAY 2] Relay Beta forwarding to Rescue Station (TTL: 5 -> 4)', '#FBBF24');
+      await animateHop('relay2', 'hq', '#F87171');
+
+      // HQ Receives
+      hq.pulse = 1;
+      hq.ack = true;
+      currentHops++;
+      updateHud();
+      addLog('🏥 [RESCUE HQ] Distress packet delivered! Triage: CRITICAL. Dispatching ACK (ETA: 4 min)', '#34D399');
+      document.getElementById('active-packet-badge').innerText = 'ACK RETURNING';
+      document.getElementById('active-packet-badge').className = 'px-2 py-0.5 text-[10px] rounded bg-emerald-950 text-emerald-300 border border-emerald-800 font-bold';
+      await sleep(400);
+
+      // Return Route: HQ -> Relay 2 -> Relay 1 -> Victim
+      addLog('↩️ [REVERSE ACK] Originating EMERGENCY_ACK (Type: 0x31) back along reverse mesh hops...', '#6EE7B7');
+      await animateHop('hq', 'relay2', '#34D399');
+      await animateHop('relay2', 'relay1', '#34D399');
+      await animateHop('relay1', 'victim', '#34D399');
+
+      victim.ack = true;
+      victim.pulse = 1;
+      addLog('✅ [DELIVERED] Victim received ACK from Rescue HQ! Path Confirmed (3 Hops, RTT: 180ms)', '#34D399');
+      document.getElementById('active-packet-badge').innerText = 'COMPLETED';
+      document.getElementById('active-packet-badge').className = 'px-2 py-0.5 text-[10px] rounded bg-emerald-900 text-emerald-200';
+      isSimulating = false;
+    }
+
+    function sleep(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    function animateHop(fromId, toId, color) {
+      return new Promise(resolve => {
+        packets.push({ fromId, toId, progress: 0, color, resolve });
+      });
+    }
+
+    function updateHud() {
+      document.getElementById('hud-ttl').innerText = `${currentTtl} / ${currentHops}`;
+      document.getElementById('hud-pruned').innerText = stormPruned;
+    }
+
+    // Animation & Render Loop
+    function render() {
+      ctx.clearRect(0, 0, width, height);
+
+      // 1. Grid
+      ctx.strokeStyle = '#161B26';
+      ctx.lineWidth = 1;
+      for (let x = 0; x < width; x += 50) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
+      }
+      for (let y = 0; y < height; y += 50) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke();
+      }
+
+      // 2. Radio Coverage Rings
+      nodes.forEach(n => {
+        if (!n.failed) {
+          ctx.beginPath();
+          ctx.setLineDash([8, 8]);
+          ctx.strokeStyle = n.role === 'VICTIM' ? 'rgba(239, 68, 68, 0.15)' : (n.role === 'HQ' ? 'rgba(52, 211, 153, 0.15)' : 'rgba(56, 189, 248, 0.08)');
+          ctx.lineWidth = 1;
+          ctx.arc(n.x, n.y, commRadius, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+      });
+
+      // 3. Edges
+      edges.forEach(([n1, n2]) => {
+        ctx.beginPath();
+        ctx.moveTo(n1.x, n1.y);
+        ctx.lineTo(n2.x, n2.y);
+        ctx.strokeStyle = 'rgba(56, 189, 248, 0.35)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      });
+
+      // 4. In-flight Packets
+      for (let i = packets.length - 1; i >= 0; i--) {
+        const p = packets[i];
+        const src = nodes.find(n => n.id === p.fromId);
+        const dst = nodes.find(n => n.id === p.toId);
+        if (src && dst) {
+          p.progress += 0.035;
+          const px = src.x + (dst.x - src.x) * p.progress;
+          const py = src.y + (dst.y - src.y) * p.progress;
+
+          // Glow
+          ctx.beginPath();
+          ctx.fillStyle = p.color;
+          ctx.globalAlpha = 0.3;
+          ctx.arc(px, py, 14, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Core
+          ctx.globalAlpha = 1.0;
+          ctx.beginPath();
+          ctx.arc(px, py, 6, 0, Math.PI * 2);
+          ctx.fill();
+
+          if (p.progress >= 1.0) {
+            p.resolve();
+            packets.splice(i, 1);
+          }
+        }
+      }
+
+      // 5. Nodes
+      nodes.forEach(n => {
+        // Pulse ring
+        if (n.pulse > 0.02) {
+          ctx.beginPath();
+          ctx.arc(n.x, n.y, 32, 0, Math.PI * 2);
+          ctx.fillStyle = n.ack ? 'rgba(52, 211, 153, 0.3)' : (n.role === 'VICTIM' ? 'rgba(239, 68, 68, 0.3)' : 'rgba(251, 191, 36, 0.3)');
+          ctx.fill();
+          n.pulse -= 0.015;
+        }
+
+        // Node Body
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, 22, 0, Math.PI * 2);
+        if (n.failed) {
+          ctx.fillStyle = '#374151';
+        } else if (n.role === 'VICTIM') {
+          ctx.fillStyle = n.ack ? '#10B981' : '#EF4444';
+        } else if (n.role === 'HQ') {
+          ctx.fillStyle = '#10B981';
+        } else if (n.role === 'BYSTANDER') {
+          ctx.fillStyle = n.suppressed ? '#64748B' : '#0EA5E9';
+        } else {
+          ctx.fillStyle = '#F59E0B';
+        }
+        ctx.fill();
+        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.stroke();
+
+        // Node Labels
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = 'bold 12px Inter, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(n.name, n.x, n.y - 28);
+
+        ctx.fillStyle = '#94A3B8';
+        ctx.font = '10px JetBrains Mono, monospace';
+        const sub = n.failed ? 'OFFLINE' : (n.suppressed ? 'PRUNED' : `${n.battery}% Bat`);
+        ctx.fillText(sub, n.x, n.y + 36);
+      });
+
+      requestAnimationFrame(render);
+    }
+    requestAnimationFrame(render);
+
+    // Event Handlers
+    document.getElementById('btn-transmit-sos').addEventListener('click', triggerSos);
+    document.getElementById('btn-toggle-fail').addEventListener('click', () => {
+      const r1 = nodes.find(n => n.id === 'relay1');
+      r1.failed = !r1.failed;
+      addLog(`⚠️ Relay Alpha is now ${r1.failed ? 'OFFLINE (Broken link)' : 'RESTORED (Self-healed)'}`, '#F59E0B');
+      updateEdges();
+    });
+    document.getElementById('btn-reset').addEventListener('click', () => {
+      nodes = [
+        { id: 'victim', name: 'Victim (Trapped)', role: 'VICTIM', x: 180, y: 320, battery: 21, failed: false, pulse: 0, ack: false },
+        { id: 'relay1', name: 'Relay Alpha', role: 'RELAY', x: 380, y: 220, battery: 88, failed: false, pulse: 0, ack: false },
+        { id: 'relay2', name: 'Relay Beta', role: 'RELAY', x: 620, y: 240, battery: 74, failed: false, pulse: 0, ack: false },
+        { id: 'relay3', name: 'Relay Gamma', role: 'RELAY', x: 490, y: 440, battery: 92, failed: false, pulse: 0, ack: false },
+        { id: 'bystander', name: 'Civilian Bystander', role: 'BYSTANDER', x: 310, y: 460, battery: 65, failed: false, pulse: 0, ack: false, suppressed: false },
+        { id: 'hq', name: 'Disaster HQ', role: 'HQ', x: 860, y: 330, battery: 99, failed: false, pulse: 0, ack: false }
+      ];
+      packets = [];
+      isSimulating = false;
+      stormPruned = 0;
+      updateEdges();
+      updateHud();
+      addLog('🔄 Topology reset to default.', '#94A3B8');
+    });
+  </script>
+</body>
+</html>
+
